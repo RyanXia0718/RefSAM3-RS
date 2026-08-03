@@ -1,0 +1,27 @@
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+build/
+dist/
+
+# Virtual environments and editor settings
+.venv/
+venv/
+.idea/
+.vscode/
+
+# Local datasets, checkpoints, and experiment outputs
+datasets/
+checkpoints/
+outputs/
+*.pt
+*.pth
+*.ckpt
+
+# Logs and temporary files
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

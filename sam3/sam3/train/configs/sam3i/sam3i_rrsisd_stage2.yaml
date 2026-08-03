@@ -1,0 +1,122 @@
+# @package _global_
+
+# Standalone RRSIS-D full-model Stage2:
+# LoRA + TextScale + Spatial Coverage Supervision.
+defaults:
+  - base
+  - _self_
+
+paths:
+  experiment_log_dir: ./outputs/logs/sam3i_rrsisd_full_stage2
+  rrsisd_img_folder: ../datasets/RRSIS-D/images/rrsisd/JPEGImages
+  rrsisd_train_json: ../datasets/RRSIS-D/sam3i_train.json
+
+sam3i_datasets_train:
+  num_images: null
+  supercategory: RRSIS-D
+  loss:
+    loss_fns_find:
+      - _target_: sam3.train.loss.loss_fns.Boxes
+        weight_dict:
+          loss_bbox: 5.0
+          loss_giou: 2.0
+      - _target_: sam3.train.loss.loss_fns.IABCEMdetr
+        weak_loss: false
+        weight_dict:
+          loss_ce: 20.0
+          presence_loss: 20.0
+        pos_weight: 10.0
+        alpha: 0.25
+        gamma: 2
+        use_presence: true
+        pos_focal: false
+        pad_n_queries: 200
+        pad_scale_pos: 1.0
+      - _target_: sam3.train.loss.loss_fns.SpatialCoverageMasks
+        focal_alpha: 0.25
+        focal_gamma: 2.0
+        region_grids: [16, 32]
+        weight_dict:
+          loss_mask: 200.0
+          loss_dice: 10.0
+          loss_spatial_coverage: 1.0
+        compute_aux: false
+
+scratch:
+  resolution: 1008
+  train_batch_size: 8
+  gradient_accumulation_steps: 1
+  num_train_workers: 10
+  lr_scale: 6.4
+  wd: 0.1
+  scheduler_timescale: 3
+  scheduler_warmup: 3
+  scheduler_cooldown: 3
+
+trainer:
+  max_epochs: 30
+  seed_value: 123
+  skip_first_val: true
+  val_epoch_freq: 100
+  mode: train_only
+
+  checkpoint:
+    save_dir: ${launcher.experiment_log_dir}/checkpoints
+    resume_from: null
+    save_freq: 5
+    save_list: [8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
+    max_keep: 0
+
+  model:
+    _target_: sam3.model_builder.build_sam3_image_model
+    bpe_path: ${paths.bpe_path}
+    checkpoint_path: ./outputs/logs/sam3i_rrsisd_full_stage1/checkpoints/checkpoint_8.pt
+    eval_mode: false
+    enable_segmentation: ${scratch.enable_segmentation}
+    adapter_config:
+      adapter_dim: 64
+      adapter_heads: 4
+      adapter_scale: 1.0
+    visual_lora_config:
+      lora_r: 8
+      lora_alpha: 16
+      lora_dropout: 0.05
+    textscale_config:
+      enabled: true
+      rank: 64
+      num_heads: 4
+      mixer_kernels: [1, 3, 5]
+
+  data:
+    train:
+      _target_: sam3.train.data.torch_dataset.TorchDataset
+      dataset:
+        _target_: torch.utils.data.ConcatDataset
+        datasets:
+          - _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
+            limit_ids: ${sam3i_datasets_train.num_images}
+            transforms: ${sam3i_datasets_train.train_transforms}
+            load_segmentation: ${scratch.enable_segmentation}
+            max_ann_per_img: 500000
+            multiplier: 1
+            max_train_queries: 50000
+            max_val_queries: 50000
+            training: true
+            use_caching: false
+            img_folder: ${paths.rrsisd_img_folder}
+            ann_file: ${paths.rrsisd_train_json}
+      shuffle: true
+      batch_size: ${scratch.train_batch_size}
+      num_workers: ${scratch.num_train_workers}
+      pin_memory: true
+      drop_last: true
+      collate_fn: ${scratch.collate_fn}
+
+launcher:
+  num_nodes: 1
+  gpus_per_node: 1
+  experiment_log_dir: ${paths.experiment_log_dir}
+
+submitit:
+  use_cluster: false
+  cpus_per_task: 4

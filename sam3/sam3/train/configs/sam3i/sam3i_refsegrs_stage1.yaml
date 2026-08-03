@@ -1,0 +1,83 @@
+# @package _global_
+
+# Standalone RefSegRS full-model Stage1 config.
+# The only shared dependency is base.yaml; no experiment config is inherited.
+defaults:
+  - base
+  - _self_
+
+paths:
+  experiment_log_dir: ./outputs/logs/sam3i_refsegrs_full_stage1
+  refsegrs_img_folder: ../datasets/RefSegRS/images
+  refsegrs_train_json: ../datasets/RefSegRS/sam3i_train.json
+
+sam3i_datasets_train:
+  num_images: null
+  supercategory: RefSegRS
+
+scratch:
+  resolution: 1008
+  train_batch_size: 1
+  gradient_accumulation_steps: 1
+  num_train_workers: 10
+  lr_scale: 6.4
+  wd: 0.1
+  scheduler_timescale: 3
+  scheduler_warmup: 3
+  scheduler_cooldown: 3
+
+trainer:
+  max_epochs: 8
+  seed_value: 123
+  skip_first_val: true
+  val_epoch_freq: 100
+  mode: train_only
+
+  checkpoint:
+    save_dir: ${launcher.experiment_log_dir}/checkpoints
+    save_freq: 1
+
+  model:
+    _target_: sam3.model_builder.build_sam3_image_model
+    bpe_path: ${paths.bpe_path}
+    checkpoint_path: ../checkpoints/sam3_base/sam3.pt
+    eval_mode: false
+    enable_segmentation: ${scratch.enable_segmentation}
+    adapter_config:
+      adapter_dim: 64
+      adapter_heads: 4
+      adapter_scale: 1.0
+
+  data:
+    train:
+      _target_: sam3.train.data.torch_dataset.TorchDataset
+      dataset:
+        _target_: torch.utils.data.ConcatDataset
+        datasets:
+          - _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
+            limit_ids: ${sam3i_datasets_train.num_images}
+            transforms: ${sam3i_datasets_train.train_transforms}
+            load_segmentation: ${scratch.enable_segmentation}
+            max_ann_per_img: 500000
+            multiplier: 1
+            max_train_queries: 50000
+            max_val_queries: 50000
+            training: true
+            use_caching: false
+            img_folder: ${paths.refsegrs_img_folder}
+            ann_file: ${paths.refsegrs_train_json}
+      shuffle: true
+      batch_size: ${scratch.train_batch_size}
+      num_workers: ${scratch.num_train_workers}
+      pin_memory: true
+      drop_last: true
+      collate_fn: ${scratch.collate_fn}
+
+launcher:
+  num_nodes: 1
+  gpus_per_node: 1
+  experiment_log_dir: ${paths.experiment_log_dir}
+
+submitit:
+  use_cluster: false
+  cpus_per_task: 4
